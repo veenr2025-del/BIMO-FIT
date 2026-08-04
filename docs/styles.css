@@ -617,6 +617,10 @@ small {
   margin: 0 0 1rem;
 }
 
+.single-auth-grid {
+  grid-template-columns: minmax(0, 560px);
+}
+
 .auth-panel {
   display: flex;
   align-items: center;
@@ -634,6 +638,18 @@ small {
   padding: 0.75rem;
   background: #f7f7ef;
   border-radius: var(--radius);
+}
+
+.code-login-card {
+  gap: 1.1rem;
+}
+
+.code-input {
+  max-width: 220px;
+  text-align: center;
+  letter-spacing: 0.35rem;
+  font-size: 1.7rem;
+  font-weight: 900;
 }
 
 .admin-grid {

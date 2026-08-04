@@ -2,7 +2,7 @@
 
 Installable PWA voor Android en iOS met:
 
-- registratie van nieuwe leden met email en wachtwoord
+- registratie/inloggen met 4-cijfer membercode
 - persoonlijke QR-code per member
 - admin QR-check-in voor aanwezigheid via camera of handmatige scan
 - scanbewijs zichtbaar voor member
@@ -14,18 +14,17 @@ Installable PWA voor Android en iOS met:
 - beloningen: korting abonnement, waardebonnen en merchandise
 - Supabase online opslag met lokale fallback
 
-## Member account maken met email en wachtwoord
+## Member account maken met 4-cijfer code
 
 1. Open de app.
-2. Tik op `Profiel`.
-3. Vul naam, email en wachtwoord in.
-4. Tik op `Account aanmaken`.
-5. Log in wanneer nodig.
-6. Vul lengte, gewicht, doel en programma in.
-7. Tik op `Profiel en QR opslaan`.
-8. De member krijgt direct een QR-pas.
+2. Tik op `Account` of gebruik het codeformulier op `Home`.
+3. Vul de 4-cijfer code in die BIMO aan het lid geeft.
+4. Tik op `Inloggen / account starten`.
+5. Bij een nieuwe code vult het lid naam, lengte, gewicht, doel en programma in.
+6. Tik op `Profiel en QR opslaan`.
+7. De member krijgt direct een QR-pas.
 
-De QR-pas is gekoppeld aan het Supabase Auth-account en kan daarna door admin worden gescand vanaf een andere telefoon.
+De QR-pas is gekoppeld aan de membercode. Als het lid later opnieuw inlogt met dezelfde code, worden profiel, punten, QR-scans, rewards en challenges opnieuw uit Supabase geladen.
 
 ## Admin camera scan
 
@@ -37,7 +36,7 @@ De QR-pas is gekoppeld aan het Supabase Auth-account en kan daarna door admin wo
 
 Wanneer de QR-code gelezen is, wordt de check-in automatisch in Supabase opgeslagen.
 
-Let op: als Supabase emailbevestiging aan heeft staan, moet de member eerst de bevestigingsmail openen voordat login werkt. Dit is een Supabase-beveiligingsinstelling.
+Let op: geef membercodes alleen aan echte leden. Een 4-cijfer code is makkelijk voor de balie en voor leden, maar minder sterk dan een volledige accountlogin.
 
 ## Snel testen op laptop
 
@@ -55,8 +54,9 @@ Open daarna de getoonde `http://localhost:...` URL in Chrome, Edge of Safari.
 
 1. Open `supabase-schema.sql`.
 2. Plak de inhoud in Supabase `SQL Editor` en klik `Run`.
-3. Controleer `supabase-config.js`.
-4. Zet daar jouw volledige `Publishable key` in.
+3. Plak daarna de prive SQL met membercodes in Supabase en klik `Run`.
+4. Controleer `supabase-config.js`.
+5. Zet daar jouw volledige `Publishable key` in.
 
 De project URL staat al ingevuld:
 
@@ -86,7 +86,7 @@ Voor echte telefooninstallatie moet de map via een HTTPS-url bereikbaar zijn, bi
 
 PWA-installatie en offline caching werken niet volledig wanneer je alleen dubbelklikt op `index.html`. Gebruik voor demonstratie minimaal een lokale server en voor telefoons een HTTPS-hostinglink.
 
-De admin PIN in deze afstudeer-demo is `2468`. In een echte productie-app hoort adminbeveiliging via Supabase Auth of een backend/server te staan.
+De admin PIN is `2468`. Voor zwaardere productiebeveiliging hoort adminbeveiliging via Supabase Auth, extra rollen of een backend/server te staan.
 
 Wanneer Supabase nog niet goed staat, zie je in de app `Lokale demo` of `Supabase aandacht nodig`. De app blijft dan werken, maar slaat alleen op het toestel op.
 

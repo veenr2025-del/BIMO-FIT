@@ -10,7 +10,16 @@ Deze app werkt lokaal zonder database, maar met Supabase worden leden, QR-scans,
 4. Plak alles in Supabase.
 5. Klik op `Run`.
 
-## 2. Publieke key controleren
+## 2. Membercodes toevoegen
+
+1. Open het privebestand `private/supabase-member-codes-insert.sql`.
+2. Plak de inhoud in Supabase `SQL Editor`.
+3. Klik op `Run`.
+4. Geef daarna per lid 1 code uit `private/bimo-member-codes-100.csv`.
+
+Zet deze codebestanden niet openbaar op GitHub. Dit zijn inlogcodes.
+
+## 3. Publieke key controleren
 
 1. Ga in Supabase naar `Project Settings`.
 2. Open `API`.
@@ -20,7 +29,7 @@ Deze app werkt lokaal zonder database, maar met Supabase worden leden, QR-scans,
 
 Gebruik nooit `service_role`, `sb_secret_...` of database-wachtwoorden in GitHub.
 
-## 3. GitHub Pages uploaden
+## 4. GitHub Pages uploaden
 
 Upload de volledige inhoud van deze map naar de root van je repository of naar `/docs`.
 
@@ -35,8 +44,8 @@ Voor `/docs`:
 
 Na 1 tot 3 minuten krijg je een online link. Open die link op Android of iPhone en voeg de app toe aan het beginscherm.
 
-## Belangrijk voor school/demo
+## Belangrijk
 
-Dit is een gratis demo-opstelling voor GitHub Pages. De app heeft wel RLS aan staan, maar de policies staan demo-breed open zodat een statische PWA zonder backend kan opslaan.
+Dit is een gratis GitHub Pages/Supabase opstelling. De app heeft RLS aan staan, maar de hoofdtabellen hebben brede policies zodat een statische PWA zonder eigen server kan opslaan.
 
 Voor een echte sportschoolversie moet de admin-login via Supabase Auth of een backend werken. Zet dan admin-acties achter echte gebruikersrollen in plaats van alleen de demo PIN.

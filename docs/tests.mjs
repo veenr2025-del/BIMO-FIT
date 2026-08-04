@@ -15,16 +15,16 @@ import {
   updateChallengeProgress
 } from "./core.mjs";
 import {
-  getAuthMemberId,
-  normalizeAuthResponse,
-  signInMemberAccount,
-  signUpMemberAccount,
-  validateAuthInput
-} from "./auth-client.mjs";
+  getMemberCodeId,
+  loginWithAccessCode,
+  validateAccessCode
+} from "./code-client.mjs";
 import {
   isSupabaseConfigured,
   pushStateToSupabase,
   scanMemberQrInSupabase,
+  stateFromCodeLogin,
+  supabaseRpc,
   toAdminAwardRow,
   toMemberRow,
   toQrScanRow
@@ -127,27 +127,10 @@ const supabaseConfig = {
 assert.equal(isSupabaseConfigured(supabaseConfig), true);
 assert.equal(isSupabaseConfigured({ ...supabaseConfig, publishableKey: "PASTE_YOUR_SUPABASE_PUBLISHABLE_KEY_HERE" }), false);
 
-const authInput = validateAuthInput({
-  name: "Test Lid",
-  email: "TEST@EMAIL.COM",
-  password: "veilig123"
-}, { requireName: true });
-assert.equal(authInput.email, "test@email.com");
-assert.throws(() => validateAuthInput({ email: "fout", password: "veilig123" }), /geldig e-mailadres/);
-assert.throws(() => validateAuthInput({ email: "test@email.com", password: "kort" }), /minimaal 8/);
-
-const authSession = normalizeAuthResponse({
-  access_token: "access-demo",
-  refresh_token: "refresh-demo",
-  expires_in: 3600,
-  user: {
-    id: "11111111-2222-3333-4444-555555555555",
-    email: "test@email.com",
-    user_metadata: { name: "Test Lid" }
-  }
-}, new Date("2026-06-24T10:00:00Z").getTime());
-assert.equal(authSession.user.email, "test@email.com");
-assert.equal(getAuthMemberId(authSession), "BIMO-11111111-2222-3333-4444-555555555555");
+assert.equal(validateAccessCode("10 47"), "1047");
+assert.equal(getMemberCodeId("1047"), "BIMO-1047");
+assert.throws(() => validateAccessCode("123"), /4-cijfer/);
+assert.throws(() => validateAccessCode("12AB"), /4-cijfer/);
 
 const memberRow = toMemberRow(member, challengeState.points);
 assert.equal(memberRow.member_code, "BIMO-TEST-001");
@@ -179,40 +162,83 @@ assert.equal(calls.some((call) => call.url.includes("/rest/v1/bimo_members")), t
 assert.equal(calls[0].options.headers.apikey, supabaseConfig.publishableKey);
 assert.equal(calls[0].options.headers.Authorization, `Bearer ${supabaseConfig.publishableKey}`);
 
-const authCalls = [];
-const authFetch = async (url, options) => {
-  authCalls.push({ url, options });
+const codeLoginCalls = [];
+const codeLoginFetch = async (url, options) => {
+  codeLoginCalls.push({ url, options });
   return {
     ok: true,
     status: 200,
     text: async () => JSON.stringify({
-      access_token: "auth-access",
-      refresh_token: "auth-refresh",
-      expires_in: 3600,
-      user: {
-        id: "22222222-2222-2222-2222-222222222222",
-        email: "member@email.com",
-        user_metadata: { name: "Member Naam" }
-      }
+      ok: true,
+      memberCode: "BIMO-1047",
+      member: {
+        member_code: "BIMO-1047",
+        qr_code: "BIMO-CHECKIN:BIMO-1047",
+        name: "Code Member",
+        age: 31,
+        height_cm: 172,
+        weight_kg: 78,
+        target_weight_kg: 74,
+        body_fat: 27,
+        blood_pressure: "124/82",
+        goal: "weight_loss",
+        program: "metcon",
+        level: "active",
+        points: 85,
+        joined_at: "2026-06-24T10:00:00.000Z"
+      },
+      qrScans: [{
+        scan_id: "scan-code-1",
+        member_code: "BIMO-1047",
+        member_name: "Code Member",
+        proof_code: "BIMO-20260624-01047",
+        status: "Goedgekeurd",
+        period_key: "2026-06-24",
+        scanned_by: "Frontdesk",
+        created_at: "2026-06-24T12:00:00.000Z"
+      }],
+      adminAwards: [{
+        award_id: "award-code-1",
+        member_code: "BIMO-1047",
+        rule_id: "pay-on-time",
+        title: "Op tijd betalen",
+        points: 40,
+        category: "Betaling",
+        note: "Betaald",
+        metric_value: "",
+        proof_code: "BIMO-20260624-PAY",
+        member_visible: true,
+        period_key: "2026-06",
+        awarded_by: "Admin",
+        created_at: "2026-06-24T13:00:00.000Z"
+      }],
+      challenges: [{
+        member_code: "BIMO-1047",
+        challenge_id: "attendance",
+        progress: 2,
+        completed: false
+      }],
+      rewardClaims: []
     })
   };
 };
 
-const signupResult = await signUpMemberAccount({
-  name: "Member Naam",
-  email: "member@email.com",
-  password: "veilig123"
-}, supabaseConfig, authFetch);
-assert.equal(signupResult.accessToken, "auth-access");
-assert.equal(authCalls[0].url.endsWith("/auth/v1/signup"), true);
-assert.equal(JSON.parse(authCalls[0].options.body).data.role, "member");
+const rpcResult = await supabaseRpc("bimo_login_with_code", { p_code: "1047" }, {}, supabaseConfig, codeLoginFetch);
+assert.equal(rpcResult.ok, true);
+assert.equal(codeLoginCalls[0].url.endsWith("/rest/v1/rpc/bimo_login_with_code"), true);
+assert.equal(JSON.parse(codeLoginCalls[0].options.body).p_code, "1047");
 
-const loginResult = await signInMemberAccount({
-  email: "member@email.com",
-  password: "veilig123"
-}, supabaseConfig, authFetch);
-assert.equal(loginResult.user.email, "member@email.com");
-assert.equal(authCalls.some((call) => call.url.includes("/auth/v1/token?grant_type=password")), true);
+const codeLoginResult = await loginWithAccessCode("1047", supabaseConfig, codeLoginFetch);
+assert.equal(codeLoginResult.session.memberCode, "BIMO-1047");
+assert.equal(codeLoginResult.state.member.name, "Code Member");
+assert.equal(codeLoginResult.state.points, 85);
+assert.equal(codeLoginResult.state.qrScans[0].proofCode, "BIMO-20260624-01047");
+assert.equal(codeLoginResult.state.adminAwards[0].ruleId, "pay-on-time");
+assert.equal(codeLoginResult.state.challenges.find((challenge) => challenge.id === "attendance").progress, 2);
+
+const restoredState = stateFromCodeLogin(JSON.parse(await (await codeLoginFetch("x", {})).text()));
+assert.equal(restoredState.member.id, "BIMO-1047");
+assert.equal(restoredState.activities[0].proofCode, "BIMO-20260624-PAY");
 
 const remoteCalls = [];
 const remoteFetch = async (url, options) => {

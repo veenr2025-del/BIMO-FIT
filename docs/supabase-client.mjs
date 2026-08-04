@@ -2,6 +2,7 @@ import { normalizeState, parseMemberQrPayload, pointRules, rewardCatalog } from 
 
 export const SUPABASE_TABLES = {
   members: "bimo_members",
+  memberCodes: "bimo_member_codes",
   qrScans: "bimo_qr_scans",
   adminAwards: "bimo_admin_awards",
   challenges: "bimo_challenge_progress",
@@ -142,6 +143,32 @@ export async function fetchRemoteLeaderboard(config = getSupabaseConfig(), fetch
   }));
 }
 
+export function stateFromCodeLogin(result) {
+  const memberRow = result?.member || null;
+  const member = memberRow ? toMemberFromRow(memberRow) : null;
+  const nextState = normalizeState({
+    member,
+    points: Number(memberRow?.points) || 0,
+    qrScans: rowsFromJson(result?.qrScans || result?.qr_scans).map(toQrScanFromRow),
+    adminAwards: rowsFromJson(result?.adminAwards || result?.admin_awards).map(toAdminAwardFromRow),
+    challenges: rowsFromJson(result?.challenges).map(toChallengeFromRow),
+    claimedRewards: rowsFromJson(result?.rewardClaims || result?.reward_claims).map((row) => row.reward_id || row.rewardId).filter(Boolean)
+  });
+
+  nextState.activities = nextState.adminAwards.map((award) => ({
+    id: award.id,
+    activityId: award.ruleId,
+    title: award.title,
+    points: award.points,
+    periodKey: award.periodKey,
+    createdAt: award.createdAt,
+    source: "admin",
+    proofCode: award.proofCode
+  }));
+
+  return nextState;
+}
+
 export async function scanMemberQrInSupabase(payload, options = {}, config = getSupabaseConfig(), fetcher = globalThis.fetch, now = new Date()) {
   if (!isSupabaseConfigured(config)) {
     return {
@@ -279,6 +306,19 @@ export function toQrScanRow(scan) {
   });
 }
 
+export function toQrScanFromRow(row) {
+  return {
+    id: row.scan_id,
+    memberId: row.member_code,
+    memberName: row.member_name || "",
+    proofCode: row.proof_code || "",
+    status: row.status || "Goedgekeurd",
+    periodKey: row.period_key || "",
+    createdAt: row.created_at || new Date().toISOString(),
+    scannedBy: row.scanned_by || "Admin"
+  };
+}
+
 export function toAdminAwardRow(award, memberCode) {
   return cleanRow({
     award_id: award.id,
@@ -295,6 +335,23 @@ export function toAdminAwardRow(award, memberCode) {
     awarded_by: award.awardedBy || "Admin",
     created_at: award.createdAt || new Date().toISOString()
   });
+}
+
+export function toAdminAwardFromRow(row) {
+  return {
+    id: row.award_id,
+    ruleId: row.rule_id,
+    title: row.title || "Admin punten",
+    points: Number(row.points) || 0,
+    category: row.category || "",
+    note: row.note || "",
+    metricValue: row.metric_value || "",
+    proofCode: row.proof_code || "",
+    memberVisible: row.member_visible !== false,
+    periodKey: row.period_key || "",
+    createdAt: row.created_at || new Date().toISOString(),
+    awardedBy: row.awarded_by || "Admin"
+  };
 }
 
 export function toChallengeRows(state) {
@@ -325,6 +382,14 @@ export function toRewardClaimRows(state) {
       created_at: new Date().toISOString()
     });
   });
+}
+
+export function toChallengeFromRow(row) {
+  return {
+    id: row.challenge_id,
+    progress: Number(row.progress) || 0,
+    completed: Boolean(row.completed)
+  };
 }
 
 async function upsertMany(tableName, rows, conflictTarget, config, fetcher) {
@@ -394,6 +459,18 @@ export async function supabaseRequest(path, options = {}, config = getSupabaseCo
   return parsed;
 }
 
+export async function supabaseRpc(functionName, args = {}, options = {}, config = getSupabaseConfig(), fetcher = globalThis.fetch) {
+  if (!isSupabaseConfigured(config)) {
+    throw new SupabaseClientError("Supabase is nog niet verbonden.", 0, "MISSING_CONFIG");
+  }
+
+  return supabaseRequest(`rpc/${encodeURIComponent(functionName)}`, {
+    method: "POST",
+    headers: options.headers || {},
+    body: args
+  }, config, fetcher);
+}
+
 function normalizeSupabaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
@@ -442,6 +519,15 @@ function cleanRow(row) {
   return Object.fromEntries(
     Object.entries(row).filter(([, value]) => value !== undefined)
   );
+}
+
+function rowsFromJson(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    const parsed = parseJson(value);
+    return Array.isArray(parsed) ? parsed : [];
+  }
+  return [];
 }
 
 function parseJson(text) {

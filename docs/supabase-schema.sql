@@ -68,23 +68,36 @@ create table if not exists public.bimo_reward_claims (
   primary key (member_code, reward_id)
 );
 
+create table if not exists public.bimo_member_codes (
+  login_code text primary key check (login_code ~ '^[0-9]{4}$'),
+  member_code text not null unique,
+  assigned_to text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  claimed_at timestamptz,
+  last_login_at timestamptz
+);
+
 create index if not exists bimo_members_points_idx on public.bimo_members(points desc);
 create index if not exists bimo_members_auth_user_id_idx on public.bimo_members(auth_user_id);
 create index if not exists bimo_members_email_idx on public.bimo_members(email);
 create index if not exists bimo_qr_scans_member_created_idx on public.bimo_qr_scans(member_code, created_at desc);
 create index if not exists bimo_admin_awards_member_created_idx on public.bimo_admin_awards(member_code, created_at desc);
+create index if not exists bimo_member_codes_member_code_idx on public.bimo_member_codes(member_code);
 
 alter table public.bimo_members enable row level security;
 alter table public.bimo_qr_scans enable row level security;
 alter table public.bimo_admin_awards enable row level security;
 alter table public.bimo_challenge_progress enable row level security;
 alter table public.bimo_reward_claims enable row level security;
+alter table public.bimo_member_codes enable row level security;
 
 grant select, insert, update on public.bimo_members to anon, authenticated;
 grant select, insert, update on public.bimo_qr_scans to anon, authenticated;
 grant select, insert, update on public.bimo_admin_awards to anon, authenticated;
 grant select, insert, update on public.bimo_challenge_progress to anon, authenticated;
 grant select, insert, update on public.bimo_reward_claims to anon, authenticated;
+revoke all on public.bimo_member_codes from anon, authenticated;
 
 drop policy if exists "BIMO demo members read" on public.bimo_members;
 drop policy if exists "BIMO demo members insert" on public.bimo_members;
@@ -181,3 +194,82 @@ create policy "BIMO demo rewards update"
   to anon, authenticated
   using (true)
   with check (true);
+
+create or replace function public.bimo_login_with_code(p_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  clean_code text;
+  code_row public.bimo_member_codes%rowtype;
+  member_row public.bimo_members%rowtype;
+begin
+  clean_code := regexp_replace(coalesce(p_code, ''), '\D', '', 'g');
+
+  if clean_code !~ '^[0-9]{4}$' then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'INVALID_CODE',
+      'message', 'Vul een geldige 4-cijfer membercode in.'
+    );
+  end if;
+
+  select *
+    into code_row
+    from public.bimo_member_codes
+    where login_code = clean_code
+      and is_active = true
+    limit 1;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'CODE_NOT_FOUND',
+      'message', 'Deze membercode is niet actief. Vraag BIMO om je code.'
+    );
+  end if;
+
+  update public.bimo_member_codes
+    set claimed_at = coalesce(claimed_at, now()),
+        last_login_at = now()
+    where login_code = clean_code;
+
+  select *
+    into member_row
+    from public.bimo_members
+    where member_code = code_row.member_code
+    limit 1;
+
+  return jsonb_build_object(
+    'ok', true,
+    'message', 'Membercode goedgekeurd.',
+    'memberCode', code_row.member_code,
+    'member', case when member_row.member_code is null then null else to_jsonb(member_row) end,
+    'qrScans', coalesce((
+      select jsonb_agg(to_jsonb(scan_row) order by scan_row.created_at desc)
+      from public.bimo_qr_scans scan_row
+      where scan_row.member_code = code_row.member_code
+    ), '[]'::jsonb),
+    'adminAwards', coalesce((
+      select jsonb_agg(to_jsonb(award_row) order by award_row.created_at desc)
+      from public.bimo_admin_awards award_row
+      where award_row.member_code = code_row.member_code
+        and award_row.member_visible = true
+    ), '[]'::jsonb),
+    'challenges', coalesce((
+      select jsonb_agg(to_jsonb(challenge_row) order by challenge_row.challenge_id)
+      from public.bimo_challenge_progress challenge_row
+      where challenge_row.member_code = code_row.member_code
+    ), '[]'::jsonb),
+    'rewardClaims', coalesce((
+      select jsonb_agg(to_jsonb(reward_row) order by reward_row.created_at desc)
+      from public.bimo_reward_claims reward_row
+      where reward_row.member_code = code_row.member_code
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+grant execute on function public.bimo_login_with_code(text) to anon, authenticated;

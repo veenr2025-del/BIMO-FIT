@@ -18,24 +18,20 @@ import {
   scanMemberQr,
   updateChallengeProgress,
   validateAdminPin
-} from "./core.mjs?v=20260804-account2";
+} from "./core.mjs?v=20260804-code1";
 import {
-  clearAuthSession,
-  fetchMemberForAuth,
-  getAuthMemberId,
-  loadAuthSession,
-  refreshMemberSession,
-  saveAuthSession,
-  signInMemberAccount,
-  signOutMemberAccount,
-  signUpMemberAccount
-} from "./auth-client.mjs?v=20260804-account2";
+  clearCodeSession,
+  getMemberCodeId,
+  loadCodeSession,
+  loginWithAccessCode,
+  saveCodeSession
+} from "./code-client.mjs?v=20260804-code1";
 import {
   fetchRemoteLeaderboard,
   getSupabaseStatus,
   pushStateToSupabase,
   scanMemberQrInSupabase
-} from "./supabase-client.mjs?v=20260804-account2";
+} from "./supabase-client.mjs?v=20260804-code1";
 
 const LEGACY_STORAGE_KEY = "bimo-fit-challenge-state-v1";
 const app = document.querySelector("#app");
@@ -54,7 +50,7 @@ let syncStatus = {
 };
 let remoteLeaderboard = [];
 let syncTimer = null;
-let authState = loadAuthSession();
+let codeSession = loadCodeSession();
 let cameraScanner = {
   active: false,
   stream: null,
@@ -94,12 +90,8 @@ document.addEventListener("submit", async (event) => {
     handleMemberSubmit(form);
   }
 
-  if (form.id === "memberSignupForm") {
-    await handleMemberSignup(form);
-  }
-
-  if (form.id === "memberLoginForm") {
-    await handleMemberLogin(form);
+  if (form.id === "memberCodeForm") {
+    await handleMemberCodeLogin(form);
   }
 
   if (form.id === "adminLoginForm") {
@@ -147,6 +139,7 @@ document.addEventListener("click", (event) => {
     const confirmed = window.confirm("Demo data wissen en opnieuw beginnen?");
     if (confirmed) {
       state = defaultState();
+      codeSession = clearCodeSession();
       adminUnlocked = false;
       sessionStorage.removeItem("bimo-admin-unlocked");
       persist();
@@ -208,7 +201,7 @@ if ("serviceWorker" in navigator) {
 
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("./sw.js?v=20260804-account2")
+      .register("./sw.js?v=20260804-code1")
       .then((registration) => registration.update())
       .catch(() => {
         showToast("Offline installatie werkt via lokale of online server.");
@@ -217,7 +210,7 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
-void initializeAuth();
+void initializeMemberCodeSession();
 void initializeSupabase();
 
 function setTab(tab) {
@@ -237,14 +230,14 @@ function setTab(tab) {
 
 function handleMemberSubmit(form) {
   try {
-    if (!authState.user) {
-      showToast("Maak eerst een member account met email en wachtwoord.");
+    if (!codeSession.active) {
+      showToast("Log eerst in met je 4-cijfer membercode.");
       return;
     }
 
     const data = Object.fromEntries(new FormData(form));
     state.member = createMember({
-      id: state.member?.id || getAuthMemberId(authState),
+      id: codeSession.memberCode || getMemberCodeId(codeSession.code),
       name: data.name,
       age: data.age,
       heightCm: data.heightCm,
@@ -256,75 +249,30 @@ function handleMemberSubmit(form) {
       program: data.program,
       level: data.level
     });
-    state.member.authUserId = authState.user.id;
-    state.member.email = authState.user.email;
     persist();
     setTab("dashboard");
-    showToast("Member account aangemaakt. De QR-pas is klaar.");
+    showToast("Profiel opgeslagen. Je QR-pas is online gekoppeld aan je code.");
   } catch (error) {
     showToast(error.message);
   }
 }
 
-async function handleMemberSignup(form) {
+async function handleMemberCodeLogin(form) {
   try {
     const data = Object.fromEntries(new FormData(form));
-    if (String(data.password || "") !== String(data.passwordConfirm || "")) {
-      showToast("Wachtwoorden zijn niet gelijk.");
-      return;
-    }
-
-    const result = await signUpMemberAccount({
-      name: data.name,
-      email: data.email,
-      password: data.password
-    });
-
-    if (result.accessToken) {
-      authState = saveAuthSession(result);
-      state.member = state.member ? {
-        ...state.member,
-        id: state.member.id || getAuthMemberId(authState),
-        authUserId: authState.user.id,
-        email: authState.user.email,
-        name: state.member.name || result.name
-      } : null;
-      persist();
-      render();
-      showToast("Member account is aangemaakt en je bent ingelogd.");
-      return;
-    }
-
-    showToast("Account aangemaakt. Bevestig je email en log daarna in.");
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
-async function handleMemberLogin(form) {
-  try {
-    const data = Object.fromEntries(new FormData(form));
-    const result = await signInMemberAccount({
-      email: data.email,
-      password: data.password
-    });
-    authState = saveAuthSession(result);
-    await hydrateMemberFromAuth();
-    render();
-    showToast("Je bent ingelogd.");
+    const result = await loginWithAccessCode(data.accessCode);
+    codeSession = saveCodeSession(result.session);
+    state = result.state;
+    persist();
+    setTab(result.state.member ? "dashboard" : "profile");
+    showToast(result.isNew ? "Code actief. Vul nu je profiel in." : "Welkom terug. Je data is geladen.");
   } catch (error) {
     showToast(error.message);
   }
 }
 
 async function handleMemberLogout() {
-  try {
-    await signOutMemberAccount(authState);
-  } catch {
-    // Local logout should still happen if the remote session is already gone.
-  }
-
-  authState = clearAuthSession();
+  codeSession = clearCodeSession();
   state = defaultState();
   persist();
   setTab("profile");
@@ -456,7 +404,7 @@ function renderDashboard() {
       <div class="hero-copy">
         <p class="eyebrow">BIMO Fit Challenge</p>
         <h1>${member ? `Welkom, ${escapeHtml(member.name)}` : "Maak je member account"}</h1>
-        <p>${member ? "Laat je QR-code scannen bij binnenkomst en bewaar je bewijs in de app." : "Start direct met email en wachtwoord. Daarna maak je jouw profiel en QR-pas."}</p>
+        <p>${member ? "Laat je QR-code scannen bij binnenkomst en bewaar je bewijs in de app." : "Start direct met je 4-cijfer membercode. Daarna maak je jouw profiel en QR-pas."}</p>
         <div class="hero-actions">
           <button class="primary-action" data-action="${member ? "go-register" : "go-register"}">
             ${member ? "Toon QR-pas" : "Account maken"}
@@ -545,7 +493,7 @@ function renderDashboard() {
 
 function renderProfile() {
   const member = state.member || {};
-  const isLoggedIn = Boolean(authState.user);
+  const isLoggedIn = Boolean(codeSession.active);
   const bmi = state.member ? calculateBmi(member.weightKg, member.heightCm) : null;
   const qrPayload = state.member ? getMemberQrPayload(state.member) : "";
   const proofs = getMemberProofs(state);
@@ -554,7 +502,7 @@ function renderProfile() {
     <section class="page-heading">
       <p class="eyebrow">Member</p>
       <h1>Member account en QR-pas</h1>
-      <p>Een member maakt hier een account aan. De QR-code wordt online opgeslagen en admin kan die bij de ingang scannen.</p>
+      <p>Een member logt hier in met de 4-cijfer code van BIMO. Daarna blijft alle data online terugkomen op elk toestel.</p>
     </section>
 
     ${renderMemberAuthPanel()}
@@ -562,7 +510,7 @@ function renderProfile() {
     <section class="form-layout">
       <form id="memberForm" class="panel form-panel">
         <label>Naam
-          <input name="name" required minlength="2" value="${escapeAttribute(member.name || authState.user?.name || "")}" placeholder="Bijv. Shania" ${isLoggedIn ? "" : "disabled"}>
+          <input name="name" required minlength="2" value="${escapeAttribute(member.name || "")}" placeholder="Bijv. Shania" ${isLoggedIn ? "" : "disabled"}>
         </label>
         <div class="two-columns">
           <label>Leeftijd
@@ -777,13 +725,13 @@ function renderRewards() {
 }
 
 function renderMemberAuthPanel() {
-  if (authState.user) {
+  if (codeSession.active) {
     return `
       <section class="panel auth-panel is-signed-in">
         <div>
-          <p class="eyebrow">Account actief</p>
-          <h2>${escapeHtml(authState.user.email)}</h2>
-          <p>Je bent ingelogd. Sla nu je profiel op om je QR-pas online te koppelen.</p>
+          <p class="eyebrow">Membercode actief</p>
+          <h2>${escapeHtml(codeSession.memberCode)}</h2>
+          <p>${state.member ? "Je bent ingelogd. Je profiel, punten en scanbewijzen zijn geladen." : "Code is goedgekeurd. Vul nu je profiel in om je QR-pas te maken."}</p>
         </div>
         <button class="secondary-action compact-button" type="button" data-action="member-logout">Uitloggen</button>
       </section>
@@ -791,42 +739,17 @@ function renderMemberAuthPanel() {
   }
 
   return `
-    <section class="auth-grid">
-      <form id="memberSignupForm" class="panel form-panel auth-card">
+    <section class="auth-grid single-auth-grid">
+      <form id="memberCodeForm" class="panel form-panel auth-card code-login-card">
         <div>
-          <p class="eyebrow">Nieuw member account</p>
-          <h2>Email en wachtwoord aanmaken</h2>
+          <p class="eyebrow">Member login</p>
+          <h2>Log in met je 4-cijfer code</h2>
         </div>
-        <label>Naam
-          <input name="name" required minlength="2" autocomplete="name" placeholder="Bijv. Shania">
+        <label>Membercode
+          <input class="code-input" name="accessCode" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4}" maxlength="4" placeholder="1234">
         </label>
-        <label>Email
-          <input type="email" name="email" required autocomplete="email" placeholder="naam@email.com">
-        </label>
-        <div class="two-columns">
-          <label>Wachtwoord
-            <input type="password" name="password" required minlength="8" autocomplete="new-password" placeholder="Minimaal 8 tekens">
-          </label>
-          <label>Herhaal wachtwoord
-            <input type="password" name="passwordConfirm" required minlength="8" autocomplete="new-password">
-          </label>
-        </div>
-        <button class="primary-action" type="submit">Account aanmaken</button>
-      </form>
-
-      <form id="memberLoginForm" class="panel form-panel auth-card">
-        <div>
-          <p class="eyebrow">Bestaande member</p>
-          <h2>Inloggen</h2>
-        </div>
-        <label>Email
-          <input type="email" name="email" required autocomplete="email" placeholder="naam@email.com">
-        </label>
-        <label>Wachtwoord
-          <input type="password" name="password" required minlength="8" autocomplete="current-password">
-        </label>
-        <button class="secondary-action" type="submit">Inloggen</button>
-        <p class="auth-note">Na login wordt je bestaande memberprofiel automatisch geladen als die al online staat.</p>
+        <button class="primary-action" type="submit">Inloggen / account starten</button>
+        <p class="auth-note">BIMO geeft deze code aan het lid. Met dezelfde code ziet het lid later opnieuw profiel, punten, QR-scans en rewards.</p>
       </form>
     </section>
   `;
@@ -891,7 +814,7 @@ function renderAdmin() {
         <label>Admin naam
           <input name="adminName" value="Frontdesk">
         </label>
-        <button class="primary-action" type="submit" ${state.member ? "" : "disabled"}>QR scan bevestigen</button>
+        <button class="primary-action" type="submit">QR scan bevestigen</button>
       </form>
 
       <form id="adminAwardForm" class="panel form-panel">
@@ -915,7 +838,7 @@ function renderAdmin() {
         <label>Admin naam
           <input name="adminName" value="Coach">
         </label>
-        <button class="primary-action" type="submit" ${state.member ? "" : "disabled"}>Punten toekennen</button>
+        <button class="primary-action" type="submit" ${state.member ? "" : "disabled"}>Punten toekennen na scan</button>
       </form>
     </section>
 
@@ -1212,33 +1135,21 @@ async function initializeSupabase() {
   render();
 }
 
-async function initializeAuth() {
-  if (!authState.user && !authState.refreshToken) return;
-
-  const expiresSoon = authState.expiresAt && authState.expiresAt < Math.floor(Date.now() / 1000) + 90;
-  if (expiresSoon && authState.refreshToken) {
-    try {
-      authState = saveAuthSession(await refreshMemberSession(authState));
-    } catch {
-      authState = clearAuthSession();
-    }
-  }
-
-  if (authState.user) {
-    await hydrateMemberFromAuth();
-    render();
-  }
+async function initializeMemberCodeSession() {
+  if (!codeSession.active) return;
+  await hydrateMemberFromCode();
+  render();
 }
 
-async function hydrateMemberFromAuth() {
+async function hydrateMemberFromCode() {
   try {
-    const remote = await fetchMemberForAuth(authState);
-    if (!remote) return;
-    state.member = remote.member;
-    state.points = remote.points;
+    const result = await loginWithAccessCode(codeSession.code);
+    codeSession = saveCodeSession(result.session);
+    state = result.state;
     persist();
   } catch {
-    showToast("Account is ingelogd, maar profiel kon nog niet geladen worden.");
+    codeSession = clearCodeSession();
+    showToast("Membercode kon niet opnieuw geladen worden. Log opnieuw in.");
   }
 }
 

@@ -1,16 +1,15 @@
-const CACHE_NAME = "bimo-fit-challenge-v6-account2";
-const APP_VERSION = "20260804-account2";
+const CACHE_NAME = "bimo-fit-challenge-v7-code1";
+const APP_VERSION = "20260804-code1";
 const ASSETS = [
   "./",
   "./index.html",
   `./styles.css?v=${APP_VERSION}`,
   `./app.mjs?v=${APP_VERSION}`,
   `./core.mjs?v=${APP_VERSION}`,
-  `./auth-client.mjs?v=${APP_VERSION}`,
+  `./code-client.mjs?v=${APP_VERSION}`,
   `./supabase-client.mjs?v=${APP_VERSION}`,
   "./supabase-config.js",
   "./supabase-schema.sql",
-  "./supabase-auth-update.sql",
   "./manifest.webmanifest",
   "./assets/bimo-logo.webp",
   "./assets/bimo-logo-black.webp",
