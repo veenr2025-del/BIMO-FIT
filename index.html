@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0b0b0b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BIMO Fit">
+    <meta name="description" content="BIMO Fit Challenge App met member QR, admin check-in, BMI, punten, challenges, ranking en beloningen.">
+    <title>BIMO Fit Challenge</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./assets/icon-192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="./assets/icon-180.png">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="app-shell">
+      <a class="brand" href="./" aria-label="BIMO Fit Challenge home">
+        <img src="./assets/bimo-logo.webp" alt="BIMO Athletics logo">
+        <span>Fit Challenge</span>
+      </a>
+      <button id="installButton" class="install-button" hidden>Installeer app</button>
+    </header>
+
+    <main id="app" class="app-main" tabindex="-1"></main>
+
+    <nav class="bottom-nav" aria-label="Hoofdnavigatie">
+      <button data-tab="dashboard" class="is-active" aria-current="page">Home</button>
+      <button data-tab="profile">Profiel</button>
+      <button data-tab="plan">Schema</button>
+      <button data-tab="points">Punten</button>
+      <button data-tab="ranking">Ranking</button>
+      <button data-tab="rewards">Rewards</button>
+      <button data-tab="admin">Admin</button>
+    </nav>
+
+    <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+
+    <script src="./assets/qrcode-generator.js"></script>
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>
