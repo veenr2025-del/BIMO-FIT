@@ -210,8 +210,7 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
-void initializeMemberCodeSession();
-void initializeSupabase();
+void initializeApp();
 
 function setTab(tab) {
   if (activeTab === "admin" && tab !== "admin") {
@@ -1133,6 +1132,11 @@ async function initializeSupabase() {
   }
 
   render();
+}
+
+async function initializeApp() {
+  await initializeMemberCodeSession();
+  await initializeSupabase();
 }
 
 async function initializeMemberCodeSession() {
