@@ -20,6 +20,17 @@ import {
   validateAdminPin
 } from "./core.mjs";
 import {
+  clearAuthSession,
+  fetchMemberForAuth,
+  getAuthMemberId,
+  loadAuthSession,
+  refreshMemberSession,
+  saveAuthSession,
+  signInMemberAccount,
+  signOutMemberAccount,
+  signUpMemberAccount
+} from "./auth-client.mjs";
+import {
   fetchRemoteLeaderboard,
   getSupabaseStatus,
   pushStateToSupabase,
@@ -43,6 +54,7 @@ let syncStatus = {
 };
 let remoteLeaderboard = [];
 let syncTimer = null;
+let authState = loadAuthSession();
 let cameraScanner = {
   active: false,
   stream: null,
@@ -80,6 +92,14 @@ document.addEventListener("submit", async (event) => {
 
   if (form.id === "memberForm") {
     handleMemberSubmit(form);
+  }
+
+  if (form.id === "memberSignupForm") {
+    await handleMemberSignup(form);
+  }
+
+  if (form.id === "memberLoginForm") {
+    await handleMemberLogin(form);
   }
 
   if (form.id === "adminLoginForm") {
@@ -163,6 +183,10 @@ document.addEventListener("click", (event) => {
     void syncStateNow({ showSuccessToast: true });
   }
 
+  if (action === "member-logout") {
+    void handleMemberLogout();
+  }
+
   if (action === "start-camera-scan") {
     void startCameraScanner();
   }
@@ -183,6 +207,7 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
+void initializeAuth();
 void initializeSupabase();
 
 function setTab(tab) {
@@ -202,9 +227,14 @@ function setTab(tab) {
 
 function handleMemberSubmit(form) {
   try {
+    if (!authState.user) {
+      showToast("Maak eerst een member account met email en wachtwoord.");
+      return;
+    }
+
     const data = Object.fromEntries(new FormData(form));
     state.member = createMember({
-      id: state.member?.id,
+      id: state.member?.id || getAuthMemberId(authState),
       name: data.name,
       age: data.age,
       heightCm: data.heightCm,
@@ -216,12 +246,79 @@ function handleMemberSubmit(form) {
       program: data.program,
       level: data.level
     });
+    state.member.authUserId = authState.user.id;
+    state.member.email = authState.user.email;
     persist();
     setTab("dashboard");
     showToast("Member account aangemaakt. De QR-pas is klaar.");
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function handleMemberSignup(form) {
+  try {
+    const data = Object.fromEntries(new FormData(form));
+    if (String(data.password || "") !== String(data.passwordConfirm || "")) {
+      showToast("Wachtwoorden zijn niet gelijk.");
+      return;
+    }
+
+    const result = await signUpMemberAccount({
+      name: data.name,
+      email: data.email,
+      password: data.password
+    });
+
+    if (result.accessToken) {
+      authState = saveAuthSession(result);
+      state.member = state.member ? {
+        ...state.member,
+        id: state.member.id || getAuthMemberId(authState),
+        authUserId: authState.user.id,
+        email: authState.user.email,
+        name: state.member.name || result.name
+      } : null;
+      persist();
+      render();
+      showToast("Member account is aangemaakt en je bent ingelogd.");
+      return;
+    }
+
+    showToast("Account aangemaakt. Bevestig je email en log daarna in.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function handleMemberLogin(form) {
+  try {
+    const data = Object.fromEntries(new FormData(form));
+    const result = await signInMemberAccount({
+      email: data.email,
+      password: data.password
+    });
+    authState = saveAuthSession(result);
+    await hydrateMemberFromAuth();
+    render();
+    showToast("Je bent ingelogd.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function handleMemberLogout() {
+  try {
+    await signOutMemberAccount(authState);
+  } catch {
+    // Local logout should still happen if the remote session is already gone.
+  }
+
+  authState = clearAuthSession();
+  state = defaultState();
+  persist();
+  setTab("profile");
+  showToast("Je bent uitgelogd.");
 }
 
 function handleAdminLogin(form) {
@@ -436,6 +533,7 @@ function renderDashboard() {
 
 function renderProfile() {
   const member = state.member || {};
+  const isLoggedIn = Boolean(authState.user);
   const bmi = state.member ? calculateBmi(member.weightKg, member.heightCm) : null;
   const qrPayload = state.member ? getMemberQrPayload(state.member) : "";
   const proofs = getMemberProofs(state);
@@ -447,17 +545,19 @@ function renderProfile() {
       <p>Een member maakt hier een account aan. De QR-code wordt online opgeslagen en admin kan die bij de ingang scannen.</p>
     </section>
 
+    ${renderMemberAuthPanel()}
+
     <section class="form-layout">
       <form id="memberForm" class="panel form-panel">
         <label>Naam
-          <input name="name" required minlength="2" value="${escapeAttribute(member.name || "")}" placeholder="Bijv. Shania">
+          <input name="name" required minlength="2" value="${escapeAttribute(member.name || authState.user?.name || "")}" placeholder="Bijv. Shania" ${isLoggedIn ? "" : "disabled"}>
         </label>
         <div class="two-columns">
           <label>Leeftijd
-            <input type="number" name="age" min="12" max="90" value="${member.age || 24}">
+            <input type="number" name="age" min="12" max="90" value="${member.age || 24}" ${isLoggedIn ? "" : "disabled"}>
           </label>
           <label>Level
-            <select name="level">
+            <select name="level" ${isLoggedIn ? "" : "disabled"}>
               ${option("starter", "Starter", member.level)}
               ${option("active", "Actief", member.level)}
               ${option("advanced", "Gevorderd", member.level)}
@@ -466,26 +566,26 @@ function renderProfile() {
         </div>
         <div class="two-columns">
           <label>Lengte in cm
-            <input type="number" name="heightCm" required min="120" max="230" value="${member.heightCm || 170}">
+            <input type="number" name="heightCm" required min="120" max="230" value="${member.heightCm || 170}" ${isLoggedIn ? "" : "disabled"}>
           </label>
           <label>Gewicht in kg
-            <input type="number" name="weightKg" required min="35" max="250" step="0.1" value="${member.weightKg || 80}">
+            <input type="number" name="weightKg" required min="35" max="250" step="0.1" value="${member.weightKg || 80}" ${isLoggedIn ? "" : "disabled"}>
           </label>
         </div>
         <div class="two-columns">
           <label>Doelgewicht
-            <input type="number" name="targetWeightKg" min="35" max="250" step="0.1" value="${member.targetWeightKg || 76}">
+            <input type="number" name="targetWeightKg" min="35" max="250" step="0.1" value="${member.targetWeightKg || 76}" ${isLoggedIn ? "" : "disabled"}>
           </label>
           <label>Vetpercentage
-            <input type="number" name="bodyFat" min="3" max="70" step="0.1" value="${member.bodyFat || ""}" placeholder="Bijv. 28.5">
+            <input type="number" name="bodyFat" min="3" max="70" step="0.1" value="${member.bodyFat || ""}" placeholder="Bijv. 28.5" ${isLoggedIn ? "" : "disabled"}>
           </label>
         </div>
         <div class="two-columns">
           <label>Bloeddruk
-            <input name="bloodPressure" value="${escapeAttribute(member.bloodPressure || "")}" placeholder="Bijv. 120/80">
+            <input name="bloodPressure" value="${escapeAttribute(member.bloodPressure || "")}" placeholder="Bijv. 120/80" ${isLoggedIn ? "" : "disabled"}>
           </label>
           <label>Hoofddoel
-            <select name="goal">
+            <select name="goal" ${isLoggedIn ? "" : "disabled"}>
               ${option("weight_loss", "Afvallen", member.goal)}
               ${option("strength", "Sterker worden", member.goal)}
               ${option("health", "Gezonder leven", member.goal)}
@@ -493,11 +593,11 @@ function renderProfile() {
           </label>
         </div>
         <label>Voorkeursprogramma
-          <select name="program">
+          <select name="program" ${isLoggedIn ? "" : "disabled"}>
             ${Object.entries(trainingPrograms).map(([key, program]) => option(key, program.name, member.program)).join("")}
           </select>
         </label>
-        <button class="primary-action" type="submit">Member account opslaan</button>
+        <button class="primary-action" type="submit" ${isLoggedIn ? "" : "disabled"}>Profiel en QR opslaan</button>
       </form>
 
       <aside class="panel member-pass">
@@ -660,6 +760,62 @@ function renderRewards() {
           </article>
         `;
       }).join("")}
+    </section>
+  `;
+}
+
+function renderMemberAuthPanel() {
+  if (authState.user) {
+    return `
+      <section class="panel auth-panel is-signed-in">
+        <div>
+          <p class="eyebrow">Account actief</p>
+          <h2>${escapeHtml(authState.user.email)}</h2>
+          <p>Je bent ingelogd. Sla nu je profiel op om je QR-pas online te koppelen.</p>
+        </div>
+        <button class="secondary-action compact-button" type="button" data-action="member-logout">Uitloggen</button>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="auth-grid">
+      <form id="memberSignupForm" class="panel form-panel auth-card">
+        <div>
+          <p class="eyebrow">Nieuw member account</p>
+          <h2>Email en wachtwoord aanmaken</h2>
+        </div>
+        <label>Naam
+          <input name="name" required minlength="2" autocomplete="name" placeholder="Bijv. Shania">
+        </label>
+        <label>Email
+          <input type="email" name="email" required autocomplete="email" placeholder="naam@email.com">
+        </label>
+        <div class="two-columns">
+          <label>Wachtwoord
+            <input type="password" name="password" required minlength="8" autocomplete="new-password" placeholder="Minimaal 8 tekens">
+          </label>
+          <label>Herhaal wachtwoord
+            <input type="password" name="passwordConfirm" required minlength="8" autocomplete="new-password">
+          </label>
+        </div>
+        <button class="primary-action" type="submit">Account aanmaken</button>
+      </form>
+
+      <form id="memberLoginForm" class="panel form-panel auth-card">
+        <div>
+          <p class="eyebrow">Bestaande member</p>
+          <h2>Inloggen</h2>
+        </div>
+        <label>Email
+          <input type="email" name="email" required autocomplete="email" placeholder="naam@email.com">
+        </label>
+        <label>Wachtwoord
+          <input type="password" name="password" required minlength="8" autocomplete="current-password">
+        </label>
+        <button class="secondary-action" type="submit">Inloggen</button>
+        <p class="auth-note">Na login wordt je bestaande memberprofiel automatisch geladen als die al online staat.</p>
+      </form>
     </section>
   `;
 }
@@ -1042,6 +1198,36 @@ async function initializeSupabase() {
   }
 
   render();
+}
+
+async function initializeAuth() {
+  if (!authState.user && !authState.refreshToken) return;
+
+  const expiresSoon = authState.expiresAt && authState.expiresAt < Math.floor(Date.now() / 1000) + 90;
+  if (expiresSoon && authState.refreshToken) {
+    try {
+      authState = saveAuthSession(await refreshMemberSession(authState));
+    } catch {
+      authState = clearAuthSession();
+    }
+  }
+
+  if (authState.user) {
+    await hydrateMemberFromAuth();
+    render();
+  }
+}
+
+async function hydrateMemberFromAuth() {
+  try {
+    const remote = await fetchMemberForAuth(authState);
+    if (!remote) return;
+    state.member = remote.member;
+    state.points = remote.points;
+    persist();
+  } catch {
+    showToast("Account is ingelogd, maar profiel kon nog niet geladen worden.");
+  }
 }
 
 function queueSupabaseSync() {

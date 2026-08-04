@@ -2,7 +2,7 @@
 
 Installable PWA voor Android en iOS met:
 
-- registratie van nieuwe leden
+- registratie van nieuwe leden met email en wachtwoord
 - persoonlijke QR-code per member
 - admin QR-check-in voor aanwezigheid via camera of handmatige scan
 - scanbewijs zichtbaar voor member
@@ -14,15 +14,18 @@ Installable PWA voor Android en iOS met:
 - beloningen: korting abonnement, waardebonnen en merchandise
 - Supabase online opslag met lokale fallback
 
-## Member account maken
+## Member account maken met email en wachtwoord
 
 1. Open de app.
 2. Tik op `Profiel`.
-3. Vul naam, lengte, gewicht, doel en programma in.
-4. Tik op `Member account opslaan`.
-5. De member krijgt direct een QR-pas.
+3. Vul naam, email en wachtwoord in.
+4. Tik op `Account aanmaken`.
+5. Log in wanneer nodig.
+6. Vul lengte, gewicht, doel en programma in.
+7. Tik op `Profiel en QR opslaan`.
+8. De member krijgt direct een QR-pas.
 
-De QR-pas kan daarna door admin worden gescand vanaf een andere telefoon.
+De QR-pas is gekoppeld aan het Supabase Auth-account en kan daarna door admin worden gescand vanaf een andere telefoon.
 
 ## Admin camera scan
 
@@ -33,6 +36,8 @@ De QR-pas kan daarna door admin worden gescand vanaf een andere telefoon.
 5. Richt de camera op de QR-code van de member.
 
 Wanneer de QR-code gelezen is, wordt de check-in automatisch in Supabase opgeslagen.
+
+Let op: als Supabase emailbevestiging aan heeft staan, moet de member eerst de bevestigingsmail openen voordat login werkt. Dit is een Supabase-beveiligingsinstelling.
 
 ## Snel testen op laptop
 

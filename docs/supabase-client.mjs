@@ -227,6 +227,8 @@ export async function scanMemberQrInSupabase(payload, options = {}, config = get
 export function toMemberRow(member, points = 0) {
   return cleanRow({
     member_code: member.id,
+    auth_user_id: member.authUserId || null,
+    email: member.email || null,
     qr_code: member.qrCode || `BIMO-CHECKIN:${member.id}`,
     name: member.name,
     age: numberOrNull(member.age),
@@ -247,6 +249,8 @@ export function toMemberRow(member, points = 0) {
 export function toMemberFromRow(row) {
   return {
     id: row.member_code,
+    authUserId: row.auth_user_id || "",
+    email: row.email || "",
     qrCode: row.qr_code || `BIMO-CHECKIN:${row.member_code}`,
     name: row.name || "Member",
     age: numberOrNull(row.age) || 18,
@@ -368,7 +372,7 @@ export async function supabaseRequest(path, options = {}, config = getSupabaseCo
     method: options.method || "GET",
     headers: {
       apikey: config.publishableKey,
-      Authorization: `Bearer ${config.publishableKey}`,
+      Authorization: `Bearer ${options.accessToken || config.publishableKey}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...(options.headers || {})

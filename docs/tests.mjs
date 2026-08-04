@@ -15,6 +15,13 @@ import {
   updateChallengeProgress
 } from "./core.mjs";
 import {
+  getAuthMemberId,
+  normalizeAuthResponse,
+  signInMemberAccount,
+  signUpMemberAccount,
+  validateAuthInput
+} from "./auth-client.mjs";
+import {
   isSupabaseConfigured,
   pushStateToSupabase,
   scanMemberQrInSupabase,
@@ -120,6 +127,28 @@ const supabaseConfig = {
 assert.equal(isSupabaseConfigured(supabaseConfig), true);
 assert.equal(isSupabaseConfigured({ ...supabaseConfig, publishableKey: "PASTE_YOUR_SUPABASE_PUBLISHABLE_KEY_HERE" }), false);
 
+const authInput = validateAuthInput({
+  name: "Test Lid",
+  email: "TEST@EMAIL.COM",
+  password: "veilig123"
+}, { requireName: true });
+assert.equal(authInput.email, "test@email.com");
+assert.throws(() => validateAuthInput({ email: "fout", password: "veilig123" }), /geldig e-mailadres/);
+assert.throws(() => validateAuthInput({ email: "test@email.com", password: "kort" }), /minimaal 8/);
+
+const authSession = normalizeAuthResponse({
+  access_token: "access-demo",
+  refresh_token: "refresh-demo",
+  expires_in: 3600,
+  user: {
+    id: "11111111-2222-3333-4444-555555555555",
+    email: "test@email.com",
+    user_metadata: { name: "Test Lid" }
+  }
+}, new Date("2026-06-24T10:00:00Z").getTime());
+assert.equal(authSession.user.email, "test@email.com");
+assert.equal(getAuthMemberId(authSession), "BIMO-11111111-2222-3333-4444-555555555555");
+
 const memberRow = toMemberRow(member, challengeState.points);
 assert.equal(memberRow.member_code, "BIMO-TEST-001");
 assert.equal(memberRow.height_cm, 180);
@@ -149,6 +178,41 @@ assert.equal(syncResult.synced, true);
 assert.equal(calls.some((call) => call.url.includes("/rest/v1/bimo_members")), true);
 assert.equal(calls[0].options.headers.apikey, supabaseConfig.publishableKey);
 assert.equal(calls[0].options.headers.Authorization, `Bearer ${supabaseConfig.publishableKey}`);
+
+const authCalls = [];
+const authFetch = async (url, options) => {
+  authCalls.push({ url, options });
+  return {
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify({
+      access_token: "auth-access",
+      refresh_token: "auth-refresh",
+      expires_in: 3600,
+      user: {
+        id: "22222222-2222-2222-2222-222222222222",
+        email: "member@email.com",
+        user_metadata: { name: "Member Naam" }
+      }
+    })
+  };
+};
+
+const signupResult = await signUpMemberAccount({
+  name: "Member Naam",
+  email: "member@email.com",
+  password: "veilig123"
+}, supabaseConfig, authFetch);
+assert.equal(signupResult.accessToken, "auth-access");
+assert.equal(authCalls[0].url.endsWith("/auth/v1/signup"), true);
+assert.equal(JSON.parse(authCalls[0].options.body).data.role, "member");
+
+const loginResult = await signInMemberAccount({
+  email: "member@email.com",
+  password: "veilig123"
+}, supabaseConfig, authFetch);
+assert.equal(loginResult.user.email, "member@email.com");
+assert.equal(authCalls.some((call) => call.url.includes("/auth/v1/token?grant_type=password")), true);
 
 const remoteCalls = [];
 const remoteFetch = async (url, options) => {

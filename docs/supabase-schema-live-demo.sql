@@ -3,6 +3,8 @@
 
 create table if not exists public.bimo_members (
   member_code text primary key,
+  auth_user_id uuid,
+  email text,
   qr_code text not null,
   name text not null,
   age integer check (age is null or age between 12 and 90),
@@ -66,5 +68,7 @@ create table if not exists public.bimo_reward_claims (
 );
 
 create index if not exists bimo_members_points_idx on public.bimo_members(points desc);
+create index if not exists bimo_members_auth_user_id_idx on public.bimo_members(auth_user_id);
+create index if not exists bimo_members_email_idx on public.bimo_members(email);
 create index if not exists bimo_qr_scans_member_created_idx on public.bimo_qr_scans(member_code, created_at desc);
 create index if not exists bimo_admin_awards_member_created_idx on public.bimo_admin_awards(member_code, created_at desc);

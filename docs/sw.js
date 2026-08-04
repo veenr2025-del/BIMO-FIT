@@ -1,13 +1,15 @@
-const CACHE_NAME = "bimo-fit-challenge-v4";
+const CACHE_NAME = "bimo-fit-challenge-v5";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.mjs",
   "./core.mjs",
+  "./auth-client.mjs",
   "./supabase-client.mjs",
   "./supabase-config.js",
   "./supabase-schema.sql",
+  "./supabase-auth-update.sql",
   "./manifest.webmanifest",
   "./assets/bimo-logo.webp",
   "./assets/bimo-logo-black.webp",
