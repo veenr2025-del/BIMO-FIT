@@ -18,7 +18,7 @@ import {
   scanMemberQr,
   updateChallengeProgress,
   validateAdminPin
-} from "./core.mjs";
+} from "./core.mjs?v=20260804-account2";
 import {
   clearAuthSession,
   fetchMemberForAuth,
@@ -29,13 +29,13 @@ import {
   signInMemberAccount,
   signOutMemberAccount,
   signUpMemberAccount
-} from "./auth-client.mjs";
+} from "./auth-client.mjs?v=20260804-account2";
 import {
   fetchRemoteLeaderboard,
   getSupabaseStatus,
   pushStateToSupabase,
   scanMemberQrInSupabase
-} from "./supabase-client.mjs";
+} from "./supabase-client.mjs?v=20260804-account2";
 
 const LEGACY_STORAGE_KEY = "bimo-fit-challenge-state-v1";
 const app = document.querySelector("#app");
@@ -199,10 +199,20 @@ document.addEventListener("click", (event) => {
 });
 
 if ("serviceWorker" in navigator) {
+  let serviceWorkerRefreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (serviceWorkerRefreshing) return;
+    serviceWorkerRefreshing = true;
+    window.location.reload();
+  });
+
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {
-      showToast("Offline installatie werkt via lokale of online server.");
-    });
+    navigator.serviceWorker
+      .register("./sw.js?v=20260804-account2")
+      .then((registration) => registration.update())
+      .catch(() => {
+        showToast("Offline installatie werkt via lokale of online server.");
+      });
   });
 }
 
@@ -445,11 +455,11 @@ function renderDashboard() {
     <section class="hero-section">
       <div class="hero-copy">
         <p class="eyebrow">BIMO Fit Challenge</p>
-        <h1>${member ? `Welkom, ${escapeHtml(member.name)}` : "Start BIMO Fit Challenge"}</h1>
-        <p>${member ? "Laat je QR-code scannen bij binnenkomst en bewaar je bewijs in de app." : "Registreer een lid, bereken BMI, ontvang een schema en beheer punten via admin."}</p>
+        <h1>${member ? `Welkom, ${escapeHtml(member.name)}` : "Maak je member account"}</h1>
+        <p>${member ? "Laat je QR-code scannen bij binnenkomst en bewaar je bewijs in de app." : "Start direct met email en wachtwoord. Daarna maak je jouw profiel en QR-pas."}</p>
         <div class="hero-actions">
           <button class="primary-action" data-action="${member ? "go-register" : "go-register"}">
-            ${member ? "Toon QR-pas" : "Nieuw lid registreren"}
+            ${member ? "Toon QR-pas" : "Account maken"}
           </button>
           <button class="secondary-action" data-action="go-admin">Admin scan</button>
         </div>
@@ -465,6 +475,8 @@ function renderDashboard() {
     </section>
 
     ${renderSyncNotice()}
+
+    ${!member ? renderMemberAuthPanel() : ""}
 
     <section class="metric-grid" aria-label="Voortgang overzicht">
       ${metricCard("Punten", state.points, "Alleen admin kan punten zetten")}

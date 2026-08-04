@@ -1,12 +1,13 @@
-const CACHE_NAME = "bimo-fit-challenge-v5";
+const CACHE_NAME = "bimo-fit-challenge-v6-account2";
+const APP_VERSION = "20260804-account2";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.mjs",
-  "./core.mjs",
-  "./auth-client.mjs",
-  "./supabase-client.mjs",
+  `./styles.css?v=${APP_VERSION}`,
+  `./app.mjs?v=${APP_VERSION}`,
+  `./core.mjs?v=${APP_VERSION}`,
+  `./auth-client.mjs?v=${APP_VERSION}`,
+  `./supabase-client.mjs?v=${APP_VERSION}`,
   "./supabase-config.js",
   "./supabase-schema.sql",
   "./supabase-auth-update.sql",
@@ -42,13 +43,24 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.hostname.endsWith("supabase.co")) return;
+
+  const shouldPreferNetwork = ["document", "script", "style", "worker"].includes(event.request.destination);
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return cached || fetch(event.request).then((response) => {
+    (shouldPreferNetwork
+      ? fetch(event.request).then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
-      });
-    })
+      }).catch(() => caches.match(event.request).then((cached) => cached || Response.error()))
+      : caches.match(event.request).then((cached) => {
+        return cached || fetch(event.request).then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        });
+      }))
   );
 });
