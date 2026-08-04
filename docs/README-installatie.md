@@ -4,7 +4,7 @@ Installable PWA voor Android en iOS met:
 
 - registratie van nieuwe leden
 - persoonlijke QR-code per member
-- admin QR-check-in voor aanwezigheid
+- admin QR-check-in voor aanwezigheid via camera of handmatige scan
 - scanbewijs zichtbaar voor member
 - BMI-berekening
 - automatisch trainingsschema
@@ -13,6 +13,26 @@ Installable PWA voor Android en iOS met:
 - ranking van deelnemers
 - beloningen: korting abonnement, waardebonnen en merchandise
 - Supabase online opslag met lokale fallback
+
+## Member account maken
+
+1. Open de app.
+2. Tik op `Profiel`.
+3. Vul naam, lengte, gewicht, doel en programma in.
+4. Tik op `Member account opslaan`.
+5. De member krijgt direct een QR-pas.
+
+De QR-pas kan daarna door admin worden gescand vanaf een andere telefoon.
+
+## Admin camera scan
+
+1. Tik op `Admin`.
+2. Log in met PIN `2468`.
+3. Tik op `Scan met camera`.
+4. Sta camera-toegang toe.
+5. Richt de camera op de QR-code van de member.
+
+Wanneer de QR-code gelezen is, wordt de check-in automatisch in Supabase opgeslagen.
 
 ## Snel testen op laptop
 
@@ -72,3 +92,7 @@ Logo, trainingsbeelden en merkcontent zijn gebaseerd op de publieke BIMO Athleti
 - https://bimoathletics.com/
 - https://bimoathletics.com/about-us/
 - https://bimoathletics.com/training-programs/
+
+QR-camera fallback gebruikt `jsQR`:
+
+- https://github.com/cozmo/jsQR

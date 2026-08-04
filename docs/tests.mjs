@@ -17,6 +17,7 @@ import {
 import {
   isSupabaseConfigured,
   pushStateToSupabase,
+  scanMemberQrInSupabase,
   toAdminAwardRow,
   toMemberRow,
   toQrScanRow
@@ -148,5 +149,54 @@ assert.equal(syncResult.synced, true);
 assert.equal(calls.some((call) => call.url.includes("/rest/v1/bimo_members")), true);
 assert.equal(calls[0].options.headers.apikey, supabaseConfig.publishableKey);
 assert.equal(calls[0].options.headers.Authorization, `Bearer ${supabaseConfig.publishableKey}`);
+
+const remoteCalls = [];
+const remoteFetch = async (url, options) => {
+  remoteCalls.push({ url, options });
+  if (url.includes("/rest/v1/bimo_members?select=*")) {
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify([{
+        member_code: member.id,
+        qr_code: member.qrCode,
+        name: member.name,
+        age: member.age,
+        height_cm: member.heightCm,
+        weight_kg: member.weightKg,
+        target_weight_kg: member.targetWeightKg,
+        body_fat: member.bodyFat,
+        blood_pressure: member.bloodPressure,
+        goal: member.goal,
+        program: member.program,
+        level: member.level,
+        points: 30,
+        joined_at: member.joinedAt
+      }])
+    };
+  }
+  if (url.includes("/rest/v1/bimo_qr_scans?select=scan_id")) {
+    return {
+      ok: true,
+      status: 200,
+      text: async () => "[]"
+    };
+  }
+  return {
+    ok: true,
+    status: 201,
+    text: async () => ""
+  };
+};
+
+const remoteScan = await scanMemberQrInSupabase(qrPayload, {
+  adminName: "Mobile Admin"
+}, supabaseConfig, remoteFetch, new Date("2026-06-24T13:00:00Z"));
+assert.equal(remoteScan.ok, true);
+assert.equal(remoteScan.member.id, member.id);
+assert.equal(remoteScan.points, 40);
+assert.equal(remoteScan.scan.scannedBy, "Mobile Admin");
+assert.equal(remoteScan.award.ruleId, "qr-checkin");
+assert.equal(remoteCalls.some((call) => call.url.includes("/rest/v1/bimo_admin_awards")), true);
 
 console.log("Alle BIMO Fit Challenge tests zijn geslaagd.");

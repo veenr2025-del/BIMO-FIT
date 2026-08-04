@@ -1,4 +1,4 @@
-const CACHE_NAME = "bimo-fit-challenge-v3";
+const CACHE_NAME = "bimo-fit-challenge-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -17,7 +17,8 @@ const ASSETS = [
   "./assets/icon-180.png",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
-  "./assets/qrcode-generator.js"
+  "./assets/qrcode-generator.js",
+  "./assets/jsQR.js"
 ];
 
 self.addEventListener("install", (event) => {

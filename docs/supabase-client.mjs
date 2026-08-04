@@ -1,4 +1,4 @@
-import { normalizeState, rewardCatalog } from "./core.mjs";
+import { normalizeState, parseMemberQrPayload, pointRules, rewardCatalog } from "./core.mjs";
 
 export const SUPABASE_TABLES = {
   members: "bimo_members",
@@ -142,6 +142,88 @@ export async function fetchRemoteLeaderboard(config = getSupabaseConfig(), fetch
   }));
 }
 
+export async function scanMemberQrInSupabase(payload, options = {}, config = getSupabaseConfig(), fetcher = globalThis.fetch, now = new Date()) {
+  if (!isSupabaseConfigured(config)) {
+    return {
+      ok: false,
+      connected: false,
+      message: "Supabase is niet verbonden. Gebruik tijdelijk handmatige scan op hetzelfde toestel."
+    };
+  }
+
+  const parsed = parseMemberQrPayload(payload);
+  const memberRow = await fetchMemberRow(parsed.memberId, config, fetcher);
+  if (!memberRow) {
+    return {
+      ok: false,
+      connected: true,
+      notFound: true,
+      memberId: parsed.memberId,
+      message: "Member bestaat nog niet online. Laat het lid eerst Profiel opslaan."
+    };
+  }
+
+  const member = toMemberFromRow(memberRow);
+  const periodKey = now.toISOString().slice(0, 10);
+  const duplicate = await hasRemoteCheckin(member.id, periodKey, config, fetcher);
+  if (duplicate) {
+    return {
+      ok: true,
+      connected: true,
+      duplicate: true,
+      member,
+      points: Number(memberRow.points) || 0,
+      message: `${member.name} is vandaag al ingecheckt.`
+    };
+  }
+
+  const checkinRule = pointRules.find((rule) => rule.id === "qr-checkin");
+  const points = checkinRule?.points || 10;
+  const proofCode = createProofCode(member.id, now);
+  const scan = {
+    id: `scan-${now.getTime()}-${member.id}`,
+    memberId: member.id,
+    memberName: member.name,
+    proofCode,
+    status: "Goedgekeurd",
+    periodKey,
+    createdAt: now.toISOString(),
+    scannedBy: options.adminName || "Admin"
+  };
+  const award = {
+    id: `award-${now.getTime()}-qr-checkin-${member.id}`,
+    ruleId: "qr-checkin",
+    title: checkinRule?.title || "QR check-in aanwezigheid",
+    points,
+    category: checkinRule?.category || "Aanwezigheid",
+    note: `Camera scan bewijs ${proofCode}`,
+    metricValue: "",
+    proofCode,
+    memberVisible: true,
+    periodKey,
+    createdAt: scan.createdAt,
+    awardedBy: scan.scannedBy
+  };
+  const nextPoints = (Number(memberRow.points) || 0) + points;
+
+  await upsertRows(SUPABASE_TABLES.members, toMemberRow(member, nextPoints), "member_code", config, fetcher);
+  await Promise.all([
+    upsertRows(SUPABASE_TABLES.qrScans, toQrScanRow(scan), "scan_id", config, fetcher),
+    upsertRows(SUPABASE_TABLES.adminAwards, toAdminAwardRow(award, member.id), "award_id", config, fetcher)
+  ]);
+
+  return {
+    ok: true,
+    connected: true,
+    duplicate: false,
+    member,
+    points: nextPoints,
+    scan,
+    award,
+    message: `QR check-in gelukt voor ${member.name}. Bewijs: ${proofCode}.`
+  };
+}
+
 export function toMemberRow(member, points = 0) {
   return cleanRow({
     member_code: member.id,
@@ -160,6 +242,24 @@ export function toMemberRow(member, points = 0) {
     joined_at: member.joinedAt || new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
+}
+
+export function toMemberFromRow(row) {
+  return {
+    id: row.member_code,
+    qrCode: row.qr_code || `BIMO-CHECKIN:${row.member_code}`,
+    name: row.name || "Member",
+    age: numberOrNull(row.age) || 18,
+    heightCm: numberOrNull(row.height_cm) || 170,
+    weightKg: numberOrNull(row.weight_kg) || 80,
+    targetWeightKg: numberOrNull(row.target_weight_kg) || numberOrNull(row.weight_kg) || 80,
+    bodyFat: numberOrNull(row.body_fat) || "",
+    bloodPressure: row.blood_pressure || "",
+    goal: row.goal || "weight_loss",
+    program: row.program || "metcon",
+    level: row.level || "starter",
+    joinedAt: row.joined_at || new Date().toISOString()
+  };
 }
 
 export function toQrScanRow(scan) {
@@ -239,6 +339,26 @@ async function upsertRows(tableName, rows, conflictTarget, config, fetcher) {
   }, config, fetcher);
 }
 
+async function fetchMemberRow(memberCode, config, fetcher) {
+  const rows = await supabaseRequest(
+    `${SUPABASE_TABLES.members}?select=*&member_code=eq.${encodeURIComponent(memberCode)}&limit=1`,
+    { method: "GET" },
+    config,
+    fetcher
+  );
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
+async function hasRemoteCheckin(memberCode, periodKey, config, fetcher) {
+  const rows = await supabaseRequest(
+    `${SUPABASE_TABLES.qrScans}?select=scan_id&member_code=eq.${encodeURIComponent(memberCode)}&period_key=eq.${encodeURIComponent(periodKey)}&limit=1`,
+    { method: "GET" },
+    config,
+    fetcher
+  );
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 export async function supabaseRequest(path, options = {}, config = getSupabaseConfig(), fetcher = globalThis.fetch) {
   if (typeof fetcher !== "function") {
     throw new SupabaseClientError("Fetch is niet beschikbaar in deze browser.", 0, "FETCH_MISSING");
@@ -294,6 +414,12 @@ function humanizeSupabaseError(error) {
   }
 
   return error.message || "Supabase kon niet worden bereikt. De app blijft lokaal werken.";
+}
+
+function createProofCode(seed, date) {
+  const compactDate = date.toISOString().slice(0, 10).replaceAll("-", "");
+  const compactSeed = String(seed).replace(/[^a-z0-9]/gi, "").slice(-5).toUpperCase();
+  return `BIMO-${compactDate}-${compactSeed}`;
 }
 
 function getBadge(points) {

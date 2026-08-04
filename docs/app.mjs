@@ -22,7 +22,8 @@ import {
 import {
   fetchRemoteLeaderboard,
   getSupabaseStatus,
-  pushStateToSupabase
+  pushStateToSupabase,
+  scanMemberQrInSupabase
 } from "./supabase-client.mjs";
 
 const LEGACY_STORAGE_KEY = "bimo-fit-challenge-state-v1";
@@ -42,6 +43,13 @@ let syncStatus = {
 };
 let remoteLeaderboard = [];
 let syncTimer = null;
+let cameraScanner = {
+  active: false,
+  stream: null,
+  detector: null,
+  frameId: 0,
+  canvas: null
+};
 
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
@@ -65,7 +73,7 @@ navButtons.forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
   event.preventDefault();
@@ -79,7 +87,7 @@ document.addEventListener("submit", (event) => {
   }
 
   if (form.id === "adminScanForm") {
-    handleAdminScan(form);
+    await handleAdminScan(form);
   }
 
   if (form.id === "adminAwardForm") {
@@ -136,6 +144,7 @@ document.addEventListener("click", (event) => {
   }
 
   if (action === "admin-logout") {
+    stopCameraScanner();
     adminUnlocked = false;
     sessionStorage.removeItem("bimo-admin-unlocked");
     render();
@@ -153,6 +162,16 @@ document.addEventListener("click", (event) => {
   if (action === "sync-now") {
     void syncStateNow({ showSuccessToast: true });
   }
+
+  if (action === "start-camera-scan") {
+    void startCameraScanner();
+  }
+
+  if (action === "stop-camera-scan") {
+    stopCameraScanner();
+    render();
+    showToast("Camera scan gestopt.");
+  }
 });
 
 if ("serviceWorker" in navigator) {
@@ -167,6 +186,10 @@ render();
 void initializeSupabase();
 
 function setTab(tab) {
+  if (activeTab === "admin" && tab !== "admin") {
+    stopCameraScanner();
+  }
+
   activeTab = tab;
   navButtons.forEach((button) => {
     const active = button.dataset.tab === tab;
@@ -195,7 +218,7 @@ function handleMemberSubmit(form) {
     });
     persist();
     setTab("dashboard");
-    showToast("Profiel aangemaakt. De member QR-pas is klaar.");
+    showToast("Member account aangemaakt. De QR-pas is klaar.");
   } catch (error) {
     showToast(error.message);
   }
@@ -214,20 +237,71 @@ function handleAdminLogin(form) {
   showToast("Admin panel geopend.");
 }
 
-function handleAdminScan(form) {
+async function handleAdminScan(form) {
   try {
     const data = Object.fromEntries(new FormData(form));
-    const result = scanMemberQr(state, data.qrPayload, {
-      adminVerified: adminUnlocked,
-      adminName: data.adminName || "Admin"
-    });
-    state = result.state;
-    persist();
-    render();
-    showToast(result.message);
+    await processAdminScanPayload(data.qrPayload, data.adminName || "Admin");
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function processAdminScanPayload(payload, adminName = "Admin") {
+  if (!adminUnlocked) {
+    showToast("Alleen admin kan QR-scans bevestigen.");
+    return;
+  }
+
+  const onlineResult = await scanMemberQrInSupabase(payload, { adminName });
+  if (onlineResult.ok) {
+    state = applyOnlineScanResult(state, onlineResult);
+    persist();
+    render();
+    showToast(onlineResult.message);
+    return;
+  }
+
+  if (onlineResult.connected && onlineResult.notFound) {
+    showToast(onlineResult.message);
+    return;
+  }
+
+  const result = scanMemberQr(state, payload, {
+    adminVerified: true,
+    adminName
+  });
+  state = result.state;
+  persist();
+  render();
+  showToast(result.message);
+}
+
+function applyOnlineScanResult(currentState, result) {
+  const nextState = normalizeState({
+    ...currentState,
+    member: result.member || currentState.member,
+    points: Number(result.points ?? currentState.points) || 0
+  });
+
+  if (result.scan && !nextState.qrScans.some((scan) => scan.id === result.scan.id)) {
+    nextState.qrScans.unshift(result.scan);
+  }
+
+  if (result.award && !nextState.adminAwards.some((award) => award.id === result.award.id)) {
+    nextState.adminAwards.unshift(result.award);
+    nextState.activities.unshift({
+      id: result.award.id,
+      activityId: result.award.ruleId,
+      title: result.award.title,
+      points: result.award.points,
+      periodKey: result.award.periodKey,
+      createdAt: result.award.createdAt,
+      source: "admin",
+      proofCode: result.award.proofCode
+    });
+  }
+
+  return nextState;
 }
 
 function handleAdminAward(form) {
@@ -369,8 +443,8 @@ function renderProfile() {
   return `
     <section class="page-heading">
       <p class="eyebrow">Member</p>
-      <h1>Registratie en QR-pas</h1>
-      <p>Elk lid krijgt een eigen QR-code. Admin scant deze bij binnenkomst; het lid ziet direct bewijs in de app.</p>
+      <h1>Member account en QR-pas</h1>
+      <p>Een member maakt hier een account aan. De QR-code wordt online opgeslagen en admin kan die bij de ingang scannen.</p>
     </section>
 
     <section class="form-layout">
@@ -423,7 +497,7 @@ function renderProfile() {
             ${Object.entries(trainingPrograms).map(([key, program]) => option(key, program.name, member.program)).join("")}
           </select>
         </label>
-        <button class="primary-action" type="submit">Profiel opslaan en QR maken</button>
+        <button class="primary-action" type="submit">Member account opslaan</button>
       </form>
 
       <aside class="panel member-pass">
@@ -434,7 +508,7 @@ function renderProfile() {
           <code>${escapeHtml(state.member.id)}</code>
           <p>Laat deze QR-code scannen bij de ingang voor presentie en puntenbewijs.</p>
         ` : `
-          ${emptyState("QR nog niet actief", "Sla eerst een memberprofiel op.")}
+          ${emptyState("QR nog niet actief", "Sla eerst een member account op.")}
         `}
         <div class="bmi-mini">
           <strong>BMI ${bmi ? bmi.value : "--"}</strong>
@@ -635,6 +709,14 @@ function renderAdmin() {
           </div>
           <button class="secondary-action compact-button" type="button" data-action="fill-current-qr">Gebruik huidige QR</button>
         </div>
+        <div class="camera-scanner" data-camera-scanner>
+          <video id="qrVideo" class="camera-preview" playsinline muted hidden></video>
+          <p id="cameraStatus">Admin kan op telefoon direct met de camera scannen. Werkt via HTTPS en vraagt eerst camera-toegang.</p>
+          <div class="camera-actions">
+            <button class="primary-action compact-button" type="button" data-action="start-camera-scan">Scan met camera</button>
+            <button class="secondary-action compact-button" type="button" data-action="stop-camera-scan">Stop camera</button>
+          </div>
+        </div>
         <label>Scanner output / QR payload
           <textarea name="qrPayload" rows="5" placeholder="Scan hier de member QR-code">${escapeHtml(qrPayload)}</textarea>
         </label>
@@ -759,6 +841,147 @@ function renderQrCodes() {
     qr.make();
     container.innerHTML = qr.createSvgTag(5, 2);
   });
+}
+
+async function startCameraScanner() {
+  if (!adminUnlocked) {
+    showToast("Open eerst het admin panel.");
+    return;
+  }
+
+  const video = document.querySelector("#qrVideo");
+  if (!(video instanceof HTMLVideoElement)) {
+    showToast("Camera venster is niet beschikbaar.");
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setCameraStatus("Deze browser ondersteunt camera toegang niet. Gebruik handmatige QR invoer.");
+    return;
+  }
+
+  const scannerMode = await getScannerMode();
+  if (scannerMode === "unsupported") {
+    setCameraStatus("QR-camera scan wordt niet ondersteund op deze browser. Gebruik handmatige scan.");
+    return;
+  }
+
+  stopCameraScanner();
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+
+    cameraScanner.stream = stream;
+    cameraScanner.active = true;
+    cameraScanner.canvas = cameraScanner.canvas || document.createElement("canvas");
+    video.srcObject = stream;
+    video.hidden = false;
+    await video.play();
+    setCameraStatus("Camera actief. Richt op de member QR-code.");
+    scanCameraFrame(video, scannerMode);
+  } catch (error) {
+    stopCameraScanner();
+    setCameraStatus(getCameraErrorMessage(error));
+  }
+}
+
+function stopCameraScanner() {
+  cameraScanner.active = false;
+  if (cameraScanner.frameId) {
+    window.cancelAnimationFrame(cameraScanner.frameId);
+    cameraScanner.frameId = 0;
+  }
+
+  if (cameraScanner.stream) {
+    cameraScanner.stream.getTracks().forEach((track) => track.stop());
+    cameraScanner.stream = null;
+  }
+
+  const video = document.querySelector("#qrVideo");
+  if (video instanceof HTMLVideoElement) {
+    video.pause();
+    video.srcObject = null;
+    video.hidden = true;
+  }
+}
+
+async function scanCameraFrame(video, scannerMode) {
+  if (!cameraScanner.active) return;
+
+  try {
+    const qrValue = await detectQrValue(video, scannerMode);
+    if (qrValue) {
+      stopCameraScanner();
+      const form = document.querySelector("#adminScanForm");
+      const input = form?.querySelector("[name='qrPayload']");
+      const adminName = form?.querySelector("[name='adminName']")?.value || "Admin";
+      if (input) input.value = qrValue;
+      setCameraStatus("QR-code gelezen. Check-in wordt verwerkt.");
+      await processAdminScanPayload(qrValue, adminName);
+      return;
+    }
+  } catch {
+    setCameraStatus("QR kon nog niet gelezen worden. Houd de code stil in beeld.");
+  }
+
+  cameraScanner.frameId = window.requestAnimationFrame(() => {
+    void scanCameraFrame(video, scannerMode);
+  });
+}
+
+async function detectQrValue(video, scannerMode) {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+    return "";
+  }
+
+  if (scannerMode === "native") {
+    const codes = await cameraScanner.detector.detect(video);
+    return codes[0]?.rawValue || "";
+  }
+
+  const canvas = cameraScanner.canvas;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+  const result = window.jsQR(frame.data, frame.width, frame.height, {
+    inversionAttempts: "dontInvert"
+  });
+  return result?.data || "";
+}
+
+async function getScannerMode() {
+  if ("BarcodeDetector" in window) {
+    try {
+      const formats = await window.BarcodeDetector.getSupportedFormats();
+      if (formats.includes("qr_code")) {
+        cameraScanner.detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+        return "native";
+      }
+    } catch {
+      cameraScanner.detector = null;
+    }
+  }
+
+  return typeof window.jsQR === "function" ? "jsqr" : "unsupported";
+}
+
+function setCameraStatus(message) {
+  const status = document.querySelector("#cameraStatus");
+  if (status) status.textContent = message;
+  showToast(message);
+}
+
+function getCameraErrorMessage(error) {
+  if (error?.name === "NotAllowedError") return "Camera toegang geweigerd. Sta camera toe in je browser.";
+  if (error?.name === "NotFoundError") return "Geen camera gevonden op dit toestel.";
+  if (error?.name === "NotReadableError") return "Camera is al in gebruik door een andere app.";
+  if (!window.isSecureContext) return "Camera werkt alleen via HTTPS. Gebruik de GitHub Pages-link.";
+  return "Camera kon niet worden gestart. Gebruik handmatige scan.";
 }
 
 function metricCard(label, value, description) {
