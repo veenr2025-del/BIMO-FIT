@@ -61,7 +61,7 @@ Open daarna de getoonde `http://localhost:...` URL in Chrome, Edge of Safari.
 De project URL staat al ingevuld:
 
 ```text
-https://uafaitdzzhfzsjwyjulf.supabase.co
+https://yxiwylifofcxdorejgmi.supabase.co
 ```
 
 Gebruik alleen een key die begint met `sb_publishable_`. Gebruik nooit een `sb_secret_`, `service_role` key of database-wachtwoord in GitHub.

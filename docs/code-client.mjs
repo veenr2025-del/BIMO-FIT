@@ -3,7 +3,7 @@ import {
   isSupabaseConfigured,
   stateFromCodeLogin,
   supabaseRpc
-} from "./supabase-client.mjs?v=20260804-code1";
+} from "./supabase-client.mjs?v=20260828-supabase2";
 
 export const CODE_SESSION_STORAGE_KEY = "bimo-fit-member-code-session-v1";
 

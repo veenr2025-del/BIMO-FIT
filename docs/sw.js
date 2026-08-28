@@ -1,5 +1,5 @@
-const CACHE_NAME = "bimo-fit-challenge-v7-code1";
-const APP_VERSION = "20260804-code1";
+const CACHE_NAME = "bimo-fit-challenge-v8-supabase2";
+const APP_VERSION = "20260828-supabase2";
 const ASSETS = [
   "./",
   "./index.html",

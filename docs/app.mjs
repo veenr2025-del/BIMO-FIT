@@ -18,20 +18,20 @@ import {
   scanMemberQr,
   updateChallengeProgress,
   validateAdminPin
-} from "./core.mjs?v=20260804-code1";
+} from "./core.mjs?v=20260828-supabase2";
 import {
   clearCodeSession,
   getMemberCodeId,
   loadCodeSession,
   loginWithAccessCode,
   saveCodeSession
-} from "./code-client.mjs?v=20260804-code1";
+} from "./code-client.mjs?v=20260828-supabase2";
 import {
   fetchRemoteLeaderboard,
   getSupabaseStatus,
   pushStateToSupabase,
   scanMemberQrInSupabase
-} from "./supabase-client.mjs?v=20260804-code1";
+} from "./supabase-client.mjs?v=20260828-supabase2";
 
 const LEGACY_STORAGE_KEY = "bimo-fit-challenge-state-v1";
 const app = document.querySelector("#app");
@@ -201,7 +201,7 @@ if ("serviceWorker" in navigator) {
 
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("./sw.js?v=20260804-code1")
+      .register("./sw.js?v=20260828-supabase2")
       .then((registration) => registration.update())
       .catch(() => {
         showToast("Offline installatie werkt via lokale of online server.");
